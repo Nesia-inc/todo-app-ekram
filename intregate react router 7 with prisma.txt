@@ -1,0 +1,407 @@
+3. Integrate Prisma into React Router 7
+3.1. Create a Prisma Client
+Inside of your app directory, create a new lib directory and add a prisma.ts file to it. This file will be used to create and export your Prisma Client instance.
+
+Set up the Prisma client like this:
+
+Prisma Postgres (recommended)
+Other databases
+app/lib/prisma.ts
+import { PrismaClient } from "../generated/prisma/client.js";
+import { withAccelerate } from '@prisma/extension-accelerate'
+
+const globalForPrisma = global as unknown as { 
+    prisma: PrismaClient
+}
+
+const prisma = globalForPrisma.prisma || new PrismaClient().$extends(withAccelerate())
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+export default prisma
+
+warning
+We recommend using a connection pooler (like Prisma Accelerate) to manage database connections efficiently.
+
+If you choose not to use one, avoid instantiating PrismaClient globally in long-lived environments. Instead, create and dispose of the client per request to prevent exhausting your database connections.
+
+You'll use this client in the next section to run your first queries.
+
+3.2. Query your database with Prisma
+Now that you have an initialized Prisma Client, a connection to your database, and some initial data, you can start querying your data with Prisma ORM.
+
+In this example, you'll be making the "home" page of your application display all of your users.
+
+Open the app/routes/home.tsx file and replace the existing code with the following:
+
+app/routes/home.tsx
+import type { Route } from "./+types/home";
+
+export function meta({}: Route.MetaArgs) {
+  return [
+    { title: "New React Router App" },
+    { name: "description", content: "Welcome to React Router!" },
+  ];
+}
+
+export default function Home({ loaderData }: Route.ComponentProps) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center -mt-16">
+      <h1 className="text-4xl font-bold mb-8 font-[family-name:var(--font-geist-sans)]">
+        Superblog
+      </h1>
+      <ol className="list-decimal list-inside font-[family-name:var(--font-geist-sans)]">
+        <li className="mb-2">Alice</li>
+        <li>Bob</li>
+      </ol>
+    </div>
+  );
+}
+
+note
+If you see an error on the first line, import type { Route } from "./+types/home";, make sure you run npm run dev so React Router generates needed types.
+
+This gives you a basic page with a title and a list of users. However, the list of users is static. Update the page to fetch the users from your database and make it dynamic.
+
+app/routes/home.tsx
+import type { Route } from "./+types/home";
+import prisma from '~/lib/prisma'
+
+export function meta({}: Route.MetaArgs) {
+  return [
+    { title: "New React Router App" },
+    { name: "description", content: "Welcome to React Router!" },
+  ];
+}
+
+export async function loader() {
+  const users = await prisma.user.findMany();
+  return { users };
+}
+
+export default function Home({ loaderData }: Route.ComponentProps) {
+  const { users } = loaderData;
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center -mt-16">
+      <h1 className="text-4xl font-bold mb-8 font-[family-name:var(--font-geist-sans)]">
+        Superblog
+      </h1>
+      <ol className="list-decimal list-inside font-[family-name:var(--font-geist-sans)]">
+        {users.map((user) => (
+          <li key={user.id} className="mb-2">
+            {user.name}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+You are now importing your client, using a React Router loader to query the User model for all users, and then displaying them in a list.
+
+Now your home page is dynamic and will display the users from your database.
+
+3.4 Update your data (optional)
+If you want to see what happens when data is updated, you could:
+
+update your User table via an SQL browser of your choice
+change your seed.ts file to add more users
+change the call to prisma.user.findMany to re-order the users, filter the users, or similar.
+Just reload the page and you'll see the changes.
+
+4. Add a new Posts list page
+You have your home page working, but you should add a new page that displays all of your posts.
+
+First, create a new posts directory under the app/routes directory and add a home.tsx file:
+
+mkdir -p app/routes/posts && touch app/routes/posts/home.tsx
+
+Second, add the following code to the app/routes/posts/home.tsx file:
+
+app/routes/posts/home.tsx
+import type { Route } from "./+types/home";
+import prisma from "~/lib/prisma";
+
+export default function Home() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center -mt-16">
+      <h1 className="text-4xl font-bold mb-8 font-[family-name:var(--font-geist-sans)]">
+        Posts
+      </h1>
+      <ul className="font-[family-name:var(--font-geist-sans)] max-w-2xl space-y-4">
+          <li>My first post</li>
+      </ul>
+    </div>
+  );
+}
+
+Second, update the app/routes.ts file so when you visit the /posts route, the posts/home.tsx page is shown:
+
+app/routes.ts
+import { type RouteConfig, index, route } from "@react-router/dev/routes";
+
+export default [
+  index("routes/home.tsx"),
+  route("posts", "routes/posts/home.tsx"),
+] satisfies RouteConfig;
+
+Now localhost:5173/posts will load, but the content is static. Update it to be dynamic, similarly to the home page:
+
+app/routes/posts/home.tsx
+import type { Route } from "./+types/home";
+import prisma from "~/lib/prisma";
+
+export async function loader() {
+  const posts = await prisma.post.findMany({
+    include: {
+      author: true,
+    },
+  });
+  return { posts };
+}
+
+export default function Posts({ loaderData }: Route.ComponentProps) {
+  const { posts } = loaderData;
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center -mt-16">
+      <h1 className="text-4xl font-bold mb-8 font-[family-name:var(--font-geist-sans)]">
+        Posts
+      </h1>
+      <ul className="font-[family-name:var(--font-geist-sans)] max-w-2xl space-y-4">
+        {posts.map((post) => (
+          <li key={post.id}>
+            <span className="font-semibold">{post.title}</span>
+            <span className="text-sm text-gray-600 ml-2">
+              by {post.author.name}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+This works similarly to the home page, but instead of displaying users, it displays posts. You can also see that you've used include in your Prisma Client query to fetch the author of each post so you can display the author's name.
+
+This "list view" is one of the most common patterns in web applications. You're going to add two more pages to your application which you'll also commonly need: a "detail view" and a "create view".
+
+5. Add a new Posts detail page
+To complement the Posts list page, you'll add a Posts detail page.
+
+In the routes/posts directory, create a new post.tsx file.
+
+touch app/routes/posts/post.tsx
+
+This page will display a single post's title, content, and author. Just like your other pages, add the following code to the app/routes/posts/post.tsx file:
+
+app/routes/posts/post.tsx
+import type { Route } from "./+types/post";
+import prisma from "~/lib/prisma";
+
+export default function Post({ loaderData }: Route.ComponentProps) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center -mt-16">
+      <article className="max-w-2xl space-y-4 font-[family-name:var(--font-geist-sans)]">
+        <h1 className="text-4xl font-bold mb-8">My first post</h1>
+        <p className="text-gray-600 text-center">by Anonymous</p>
+        <div className="prose prose-gray mt-8">
+          No content available.
+        </div>
+      </article>
+    </div>
+  );
+}
+
+And then add a new route for this page:
+
+app/routes.ts
+export default [
+  index("routes/home.tsx"),
+  route("posts", "routes/posts/home.tsx"),
+  route("posts/:postId", "routes/posts/post.tsx"),
+] satisfies RouteConfig;
+
+As before, this page is static. Update it to be dynamic based on the params passed to the page:
+
+app/routes/posts/post.tsx
+import { data } from "react-router";
+import type { Route } from "./+types/post";
+import prisma from "~/lib/prisma";
+
+export async function loader({ params }: Route.LoaderArgs) {
+  const { postId } = params;
+  const post = await prisma.post.findUnique({
+    where: { id: parseInt(postId) },
+    include: {
+      author: true,
+    },
+  });
+
+  if (!post) {
+    throw data("Post Not Found", { status: 404 });
+  }
+  return { post };
+}
+
+export default function Post({ loaderData }: Route.ComponentProps) {
+  const { post } = loaderData;
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center -mt-16">
+      <article className="max-w-2xl space-y-4 font-[family-name:var(--font-geist-sans)]">
+        <h1 className="text-4xl font-bold mb-8">{post.title}</h1>
+        <p className="text-gray-600 text-center">by {post.author.name}</p>
+        <div className="prose prose-gray mt-8">
+          {post.content || "No content available."}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+There's a lot of changes here, so break it down:
+
+You're using Prisma Client to fetch the post by its id, which you get from the params object.
+In case the post doesn't exist (maybe it was deleted or maybe you typed a wrong ID), you throw an error to display a 404 page.
+You then display the post's title, content, and author. If the post doesn't have content, you display a placeholder message.
+It's not the prettiest page, but it's a good start. Try it out by navigating to localhost:5173/posts/1 and localhost:5173/posts/2. You can also test the 404 page by navigating to localhost:5173/posts/999.
+
+6. Add a new Posts create page
+To round out your application, you'll add a "create" page for posts. This will allow you to write your own posts and save them to the database.
+
+As with the other pages, you'll start with a static page and then update it to be dynamic.
+
+touch app/routes/posts/new.tsx
+
+Now, add the following code to the app/routes/posts/new.tsx file:
+
+app/routes/posts/new.tsx
+import type { Route } from "./+types/new";
+import { Form } from "react-router";
+
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const title = formData.get("title") as string;
+  const content = formData.get("content") as string;
+}
+
+export default function NewPost() {
+  return (
+    <div className="max-w-2xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-6">Create New Post</h1>
+      <Form method="post" className="space-y-6">
+        <div>
+          <label htmlFor="title" className="block text-lg mb-2">
+            Title
+          </label>
+          <input
+            type="text"
+            id="title"
+            name="title"
+            placeholder="Enter your post title"
+            className="w-full px-4 py-2 border rounded-lg"
+          />
+        </div>
+        <div>
+          <label htmlFor="content" className="block text-lg mb-2">
+            Content
+          </label>
+          <textarea
+            id="content"
+            name="content"
+            placeholder="Write your post content here..."
+            rows={6}
+            className="w-full px-4 py-2 border rounded-lg"
+          />
+        </div>
+        <button
+          type="submit"
+          className="w-full bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600"
+        >
+          Create Post
+        </button>
+      </Form>
+    </div>
+  );
+}
+
+You can't open the posts/new page in your app yet. To do that, you need to add it to routes.tsx again:
+
+app/routes.ts
+export default [
+  index("routes/home.tsx"),
+  route("posts", "routes/posts/home.tsx"),
+  route("posts/:postId", "routes/posts/post.tsx"),
+  route("posts/new", "routes/posts/new.tsx"),
+] satisfies RouteConfig;
+
+Now you can view the form at the new URL. It looks good, but it doesn't do anything yet. Update the action to save the post to the database:
+
+app/routes/posts/new.tsx
+import type { Route } from "./+types/new";
+import { Form, redirect } from "react-router";
+import prisma from "~/lib/prisma";
+
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const title = formData.get("title") as string;
+  const content = formData.get("content") as string;  
+
+  try {
+    await prisma.post.create({
+      data: {
+        title,
+        content,
+        authorId: 1,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return Response.json({ error: "Failed to create post" }, { status: 500 });
+  }
+
+  return redirect("/posts");
+}
+
+export default function NewPost() {
+  return (
+    <div className="max-w-2xl mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-6">Create New Post</h1>
+      <Form method="post" className="space-y-6">
+        <div>
+          <label htmlFor="title" className="block text-lg mb-2">
+            Title
+          </label>
+          <input
+            type="text"
+            id="title"
+            name="title"
+            placeholder="Enter your post title"
+            className="w-full px-4 py-2 border rounded-lg"
+          />
+        </div>
+        <div>
+          <label htmlFor="content" className="block text-lg mb-2">
+            Content
+          </label>
+          <textarea
+            id="content"
+            name="content"
+            placeholder="Write your post content here..."
+            rows={6}
+            className="w-full px-4 py-2 border rounded-lg"
+          />
+        </div>
+        <button
+          type="submit"
+          className="w-full bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600"
+        >
+          Create Post
+        </button>
+      </Form>
+    </div>
+  );
+}
+
+This page now has a functional form! When you submit the form, it will create a new post in the database and redirect you to the posts list page.
+
+Try it out by navigating to localhost:5173/posts/new and submitting the form.
